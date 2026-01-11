@@ -1,5 +1,5 @@
 //
-//  HomeView.swift
+//  SettingView.swift
 //  YKD_Anniversary
 //
 //  Created by 鍵本大地 on 2026/01/03.
@@ -77,11 +77,9 @@ struct SettingView: View {
             // =====================
             Section(header: Text("ユーザー情報")) {
 
-                // プレビュー（横並び）
                 HStack(spacing: 24) {
                     ProfileAvatar(image: myImage, title: "自分")
 
-                    // ★ 未連携時のみ相手を表示
                     if originalUser.coupleId == nil {
                         ProfileAvatar(image: partnerImage, title: "相手")
                     }
@@ -89,12 +87,10 @@ struct SettingView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical)
 
-                // 自分の画像変更
                 PhotosPicker(selection: $myPhotoItem, matching: .images) {
                     Text("自分のプロフィール画像を変更")
                 }
 
-                // ★ 未連携時のみ相手の画像変更
                 if originalUser.coupleId == nil {
                     PhotosPicker(selection: $partnerPhotoItem, matching: .images) {
                         Text("相手のプロフィール画像を変更")
@@ -133,9 +129,7 @@ struct SettingView: View {
                 ForEach(EmotionTag.allCases, id: \.self) { tag in
 
                     let isOnBinding = Binding<Bool>(
-                        get: {
-                            emotionTags.contains(tag)
-                        },
+                        get: { emotionTags.contains(tag) },
                         set: { newValue in
                             if newValue {
                                 emotionTags.insert(tag)
@@ -176,14 +170,12 @@ struct SettingView: View {
             }
         }
 
-        // 保存要求
         .onChange(of: saveRequest) { _, newValue in
             if newValue {
                 save()
             }
         }
 
-        // 自分の画像
         .onChange(of: myPhotoItem) { _, newItem in
             loadImage(from: newItem) {
                 selectedMyImage = $0
@@ -191,7 +183,6 @@ struct SettingView: View {
             }
         }
 
-        // 相手の画像（未連携時）
         .onChange(of: partnerPhotoItem) { _, newItem in
             loadImage(from: newItem) {
                 selectedPartnerImage = $0
@@ -204,12 +195,17 @@ struct SettingView: View {
     private func save() {
         guard hasChanges else { return }
 
+        let latestUser = UserService().load()
+
         let updatedUser = User(
-            id: originalUser.id,
-            coupleId: originalUser.coupleId,
+            id: latestUser.id,
+            coupleId: latestUser.coupleId,
             displayName: displayName,
-            iconUrl: selectedMyImage.map { ImageService.save(image: $0) } ?? originalUser.iconUrl,
-            partnerIconUrl: selectedPartnerImage.map { ImageService.save(image: $0) } ?? originalUser.partnerIconUrl,
+            iconUrl: selectedMyImage.map { ImageService.save(image: $0) }
+                ?? latestUser.iconUrl,
+            partnerIconUrl: selectedPartnerImage.map { ImageService.save(image: $0) }
+                ?? latestUser.partnerIconUrl,
+            backgroundImageUrl: latestUser.backgroundImageUrl, //背景を保持
             startDate: startDate,
             statusMessage: statusMessage.isEmpty ? nil : statusMessage,
             emotionTags: emotionTags,
@@ -219,6 +215,7 @@ struct SettingView: View {
         onSave(updatedUser)
         onDirtyChange(false)
     }
+
 
     private func loadImage(
         from item: PhotosPickerItem?,

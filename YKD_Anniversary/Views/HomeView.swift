@@ -2,11 +2,7 @@
 //  HomeView.swift
 //  YKD_Anniversary
 //
-//  ホーム画面
-//  ・ステータスメッセージ表示
-//  ・経過時間リアルタイム表示
-//  ・記念日 / イベント一覧
-//  ・イベント追加 / 編集 / 削除の起点
+//  Created by 鍵本大地 on 2026/01/03.
 //
 
 import SwiftUI
@@ -14,20 +10,29 @@ import PhotosUI
 
 struct HomeView: View {
 
-    // MARK: - 入力（MainView から渡される）
+    // MARK: - 入力
     let user: User
+
+    // MARK: - Service
+    private let userService = UserService()
+    private let eventService = EventService()
 
     // MARK: - 相手ユーザー関連
     @State private var partnerUser: User?
     @State private var tempPartnerImage: UIImage?
     @State private var showPartnerImagePicker = false
 
+    // MARK: - 背景画像
+    @State private var backgroundImage: UIImage?
+    @State private var showBackgroundPicker = false
+    @State private var selectedBackgroundItem: PhotosPickerItem?
+    @State private var backgroundLoadToken = UUID()
+
     // MARK: - セグメント
     @State private var selectedFilter: AnniversaryFilter = .all
 
     // MARK: - イベント管理
     @State private var events: [Event] = []
-    private let eventService = EventService()
 
     // MARK: - 現在時刻
     @State private var now: Date = Date()
@@ -40,13 +45,9 @@ struct HomeView: View {
 
     // MARK: - 相手アバター表示
     private var displayPartnerImage: UIImage? {
-        if let partnerUser {
-            return partnerUser.iconImage
-        }
-        if let saved = user.partnerIconImage {
-            return saved
-        }
-        return tempPartnerImage
+        partnerUser?.iconImage
+        ?? user.partnerIconImage
+        ?? tempPartnerImage
     }
 
     // MARK: - セグメントEnum
@@ -60,76 +61,141 @@ struct HomeView: View {
     // MARK: - フィルタ済みイベント
     private var filteredEvents: [Event] {
         let alive = events.filter { !$0.isDeleted }
-
         switch selectedFilter {
-        case .all:
-            return alive
-        case .anniversary:
-            return alive.filter { $0.type == .anniversary }
-        case .event:
-            return alive.filter { $0.type == .event }
+        case .all: return alive
+        case .anniversary: return alive.filter { $0.type == .anniversary }
+        case .event: return alive.filter { $0.type == .event }
         }
     }
 
     // MARK: - View
     var body: some View {
-        VStack {
+        ZStack {
 
-            header
-
-            Spacer().frame(height: 24)
-
-            Text("2人が" + (user.statusMessage ?? "出会ってから"))
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 46)
-
-            avatarArea
-
-            Text(
-                ElapsedTimeFormatter.format(
-                    from: user.startDate,
-                    to: now
-                )
-            )
-            .font(.title)
-            .fontWeight(.semibold)
-            .monospacedDigit()
-            .padding(.top, 4)
-
-            Spacer().frame(height: 32)
-
-            Picker("AnniversaryEvent", selection: $selectedFilter) {
-                ForEach(AnniversaryFilter.allCases) {
-                    Text($0.rawValue).tag($0)
+            // ===== 背景 =====
+            if let image = backgroundImage {
+                GeometryReader { geo in
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                        .blur(radius: 0)
+                        .overlay(Color.black.opacity(0.50))
                 }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            } else {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
 
-            List {
-                ForEach(filteredEvents) { event in
-                    EventRowView(
-                        event: event,
-                        now: now,
-                        onEdit: {
-                            selectedEvent = event
-                            showEditEvent = true
-                        },
-                        onDelete: {
-                            selectedEvent = event
-                            showDeleteAlert = true
-                        },
-                        onTap: {}
+            VStack {
+
+                header
+
+                Spacer().frame(height: 24)
+
+                Text("2人が" + (user.statusMessage ?? "出会ってから"))
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 46)
+
+                avatarArea
+
+                Text(
+                    ElapsedTimeFormatter.format(
+                        from: user.startDate,
+                        to: now
+                    )
+                )
+                .font(.title)
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .padding(.top, 4)
+
+                Spacer().frame(height: 32)
+
+                Picker("AnniversaryEvent", selection: $selectedFilter) {
+                    ForEach(AnniversaryFilter.allCases) {
+                        Text($0.rawValue).tag($0)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+
+                List {
+                    ForEach(filteredEvents) { event in
+                        EventRowView(
+                            event: event,
+                            now: now,
+                            onEdit: {
+                                selectedEvent = event
+                                showEditEvent = true
+                            },
+                            onDelete: {
+                                selectedEvent = event
+                                showDeleteAlert = true
+                            },
+                            onTap: {}
+                        )
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .onAppear {
+                    events = eventService.load()
+
+                    let savedUser = userService.load()
+                    backgroundImage = ImageService.loadImage(
+                        from: savedUser.backgroundImageUrl
                     )
                 }
-            }
-            .listStyle(.plain)
-            .onAppear {
-                events = eventService.load()
-            }
 
-            Spacer()
+                Spacer()
+            }
+        }
+
+        // MARK: - 背景画像ピッカー
+        .photosPicker(
+            isPresented: $showBackgroundPicker,
+            selection: $selectedBackgroundItem,
+            matching: .images
+        )
+        .onChange(of: selectedBackgroundItem) { _, item in
+            guard let item else { return }
+
+            let token = UUID()
+            backgroundLoadToken = token
+
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data),
+                   backgroundLoadToken == token,
+                   let url = ImageService.save(image: image) {
+
+                    let savedUser = userService.load()
+
+                    let updatedUser = User(
+                        id: savedUser.id,
+                        coupleId: savedUser.coupleId,
+                        displayName: savedUser.displayName,
+                        iconUrl: savedUser.iconUrl,
+                        partnerIconUrl: savedUser.partnerIconUrl,
+                        backgroundImageUrl: url,
+                        startDate: savedUser.startDate,
+                        statusMessage: savedUser.statusMessage,
+                        emotionTags: savedUser.emotionTags,
+                        updatedAt: Date()
+                    )
+
+                    userService.save(updatedUser)
+
+                    backgroundImage = image
+                }
+            }
         }
 
         // MARK: - 時刻更新
@@ -139,49 +205,29 @@ struct HomeView: View {
             now = Date()
         }
 
-        // MARK: - 相手画像選択
-        .photosPicker(
-            isPresented: $showPartnerImagePicker,
-            selection: Binding(
-                get: { nil },
-                set: { item in
-                    guard let item else { return }
-                    Task {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let image = UIImage(data: data) {
-                            tempPartnerImage = image
-                        }
-                    }
-                }
-            ),
-            matching: .images
-        )
-
         // MARK: - 追加
         .sheet(isPresented: $showAddEvent) {
             NavigationStack {
                 AddEventView(
                     event: nil,
-                    onSave: { event in
-                        eventService.add(event)
+                    onSave: {
+                        eventService.add($0)
                         events = eventService.load()
                         showAddEvent = false
                     },
-                    onCancel: {
-                        showAddEvent = false
-                    }
+                    onCancel: { showAddEvent = false }
                 )
             }
         }
 
         // MARK: - 編集
         .sheet(isPresented: $showEditEvent) {
-            if let selectedEvent {
-                NavigationStack {
+            NavigationStack {
+                if let selectedEvent {
                     AddEventView(
                         event: selectedEvent,
-                        onSave: { edited in
-                            eventService.update(edited)
+                        onSave: {
+                            eventService.update($0)
                             events = eventService.load()
                             showEditEvent = false
                             self.selectedEvent = nil
@@ -213,6 +259,7 @@ struct HomeView: View {
     // MARK: - Header
     private var header: some View {
         HStack {
+
             QuarterCircleButton(
                 position: .rightBottom,
                 size: 70,
@@ -221,9 +268,11 @@ struct HomeView: View {
                 iconColor: .white,
                 iconSizeRatio: 0.4,
                 iconOffsetRatio: -1
-            ) {}
-                .ignoresSafeArea()
-                .opacity(0.5)
+            ) {
+                showBackgroundPicker = true
+            }
+            .opacity(0.5)
+            .ignoresSafeArea()
 
             Spacer()
 
@@ -238,8 +287,8 @@ struct HomeView: View {
             ) {
                 showAddEvent = true
             }
-                .ignoresSafeArea()
-                .opacity(0.5)
+            .opacity(0.5)
+            .ignoresSafeArea()
         }
     }
 

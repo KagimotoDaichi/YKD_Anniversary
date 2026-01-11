@@ -43,5 +43,15 @@ final class ImageService {
             in: .userDomainMask
         )[0]
     }
+    
+    static func delete(url: String?) {
+        guard
+            let url,
+            let fileURL = URL(string: url)
+        else { return }
+
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
 }
 
