@@ -2,11 +2,11 @@
 //  HomeView.swift
 //  YKD_Anniversary
 //
-//  Created by 鍵本大地 on 2026/01/03.
-//
 //  ホーム画面
 //  ・ステータスメッセージ表示
-//  ・記念日から現在までの経過時間をリアルタイム表示
+//  ・経過時間リアルタイム表示
+//  ・記念日 / イベント一覧
+//  ・イベント追加 / 編集 / 削除の起点
 //
 
 import SwiftUI
@@ -14,115 +14,78 @@ import PhotosUI
 
 struct HomeView: View {
 
-    let user: User                          // 自分
-    @State private var partnerUser: User?   // 連携済みの相手
+    // MARK: - 入力（MainView から渡される）
+    let user: User
+
+    // MARK: - 相手ユーザー関連
+    @State private var partnerUser: User?
     @State private var tempPartnerImage: UIImage?
     @State private var showPartnerImagePicker = false
 
-    // 現在時刻（1秒更新）
+    // MARK: - セグメント
+    @State private var selectedFilter: AnniversaryFilter = .all
+
+    // MARK: - イベント管理
+    @State private var events: [Event] = []
+    private let eventService = EventService()
+
+    // MARK: - 現在時刻
     @State private var now: Date = Date()
 
-    // MARK: - 相手アバター表示用画像
-    private var displayPartnerImage: UIImage? {
+    // MARK: - 画面制御
+    @State private var showAddEvent = false
+    @State private var selectedEvent: Event?
+    @State private var showEditEvent = false
+    @State private var showDeleteAlert = false
 
-        // 連携済み → 相手ユーザーの画像
+    // MARK: - 相手アバター表示
+    private var displayPartnerImage: UIImage? {
         if let partnerUser {
             return partnerUser.iconImage
         }
-
-        // 未連携 → 自分が設定した相手用画像
-        if let savedPartnerImage = user.partnerIconImage {
-            return savedPartnerImage
+        if let saved = user.partnerIconImage {
+            return saved
         }
-
-        // 未保存 → 一時選択画像
-        if let tempPartnerImage {
-            return tempPartnerImage
-        }
-
-        return nil
+        return tempPartnerImage
     }
 
-    var body: some View {
+    // MARK: - セグメントEnum
+    enum AnniversaryFilter: String, CaseIterable, Identifiable {
+        case all = "全て"
+        case anniversary = "記念日"
+        case event = "イベント"
+        var id: Self { self }
+    }
 
+    // MARK: - フィルタ済みイベント
+    private var filteredEvents: [Event] {
+        let alive = events.filter { !$0.isDeleted }
+
+        switch selectedFilter {
+        case .all:
+            return alive
+        case .anniversary:
+            return alive.filter { $0.type == .anniversary }
+        case .event:
+            return alive.filter { $0.type == .event }
+        }
+    }
+
+    // MARK: - View
+    var body: some View {
         VStack {
 
-            // MARK: ヘッダー
-            HStack {
-
-                QuarterCircleButton(
-                    position: .rightBottom,
-                    size: 70,
-                    backgroundColor: .blue,
-                    iconName: "photo.fill",
-                    iconColor: .white,
-                    iconSizeRatio: 0.4,
-                    iconOffsetRatio: -1
-                ) {
-                    print("背景変更")
-                }
-                .ignoresSafeArea()
-                .opacity(0.5)
-
-                Spacer()
-
-                QuarterCircleButton(
-                    position: .leftBottom,
-                    size: 70,
-                    backgroundColor: .pink,
-                    iconName: "plus",
-                    iconColor: .white,
-                    iconSizeRatio: 0.45,
-                    iconOffsetRatio: -1
-                ) {
-                    print("記念日・イベント追加")
-                }
-                .ignoresSafeArea()
-                .opacity(0.5)
-            }
+            header
 
             Spacer().frame(height: 24)
 
-            // MARK: ステータスメッセージ
             Text("2人が" + (user.statusMessage ?? "出会ってから"))
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 46)
 
-            // MARK: アバター
-            HStack(spacing: 24) {
-                Spacer()
+            avatarArea
 
-                // 自分
-                AvatarView(
-                    image: user.iconImage,
-                    size: 100,
-                    isEditable: false,
-                    onTap: nil
-                )
-
-                Text("♡")
-                    .font(.title)
-
-                // 相手
-                AvatarView(
-                    image: displayPartnerImage,
-                    size: 100,
-                    isEditable: partnerUser == nil && user.partnerIconImage == nil,
-                    onTap: {
-                        guard partnerUser == nil,
-                              user.partnerIconImage == nil
-                        else { return }
-
-                        showPartnerImagePicker = true
-                    }
-                )
-
-                Spacer()
-            }
-            .padding(.leading, 16)
-
-            // MARK: 経過時間
             Text(
                 ElapsedTimeFormatter.format(
                     from: user.startDate,
@@ -136,25 +99,47 @@ struct HomeView: View {
 
             Spacer().frame(height: 32)
 
-            // 仮コンテンツ
-            Text("全て・記念日・イベント選択")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+            Picker("AnniversaryEvent", selection: $selectedFilter) {
+                ForEach(AnniversaryFilter.allCases) {
+                    Text($0.rawValue).tag($0)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
 
-            Text("リスト")
-                .foregroundColor(.secondary)
+            List {
+                ForEach(filteredEvents) { event in
+                    EventRowView(
+                        event: event,
+                        now: now,
+                        onEdit: {
+                            selectedEvent = event
+                            showEditEvent = true
+                        },
+                        onDelete: {
+                            selectedEvent = event
+                            showDeleteAlert = true
+                        },
+                        onTap: {}
+                    )
+                }
+            }
+            .listStyle(.plain)
+            .onAppear {
+                events = eventService.load()
+            }
 
             Spacer()
         }
 
-        // MARK: 現在時刻更新
+        // MARK: - 時刻更新
         .onReceive(
             Timer.publish(every: 1, on: .main, in: .common).autoconnect()
         ) { _ in
             now = Date()
         }
 
-        // MARK: 未連携時の相手画像選択
+        // MARK: - 相手画像選択
         .photosPicker(
             isPresented: $showPartnerImagePicker,
             selection: Binding(
@@ -171,10 +156,124 @@ struct HomeView: View {
             ),
             matching: .images
         )
+
+        // MARK: - 追加
+        .sheet(isPresented: $showAddEvent) {
+            NavigationStack {
+                AddEventView(
+                    event: nil,
+                    onSave: { event in
+                        eventService.add(event)
+                        events = eventService.load()
+                        showAddEvent = false
+                    },
+                    onCancel: {
+                        showAddEvent = false
+                    }
+                )
+            }
+        }
+
+        // MARK: - 編集
+        .sheet(isPresented: $showEditEvent) {
+            if let selectedEvent {
+                NavigationStack {
+                    AddEventView(
+                        event: selectedEvent,
+                        onSave: { edited in
+                            eventService.update(edited)
+                            events = eventService.load()
+                            showEditEvent = false
+                            self.selectedEvent = nil
+                        },
+                        onCancel: {
+                            showEditEvent = false
+                            self.selectedEvent = nil
+                        }
+                    )
+                }
+            }
+        }
+
+        // MARK: - 削除確認
+        .alert("イベントを削除しますか？", isPresented: $showDeleteAlert) {
+            Button("削除", role: .destructive) {
+                if let selectedEvent {
+                    eventService.delete(selectedEvent)
+                    events = eventService.load()
+                    self.selectedEvent = nil
+                }
+            }
+            Button("キャンセル", role: .cancel) {
+                selectedEvent = nil
+            }
+        }
+    }
+
+    // MARK: - Header
+    private var header: some View {
+        HStack {
+            QuarterCircleButton(
+                position: .rightBottom,
+                size: 70,
+                backgroundColor: .blue,
+                iconName: "photo.fill",
+                iconColor: .white,
+                iconSizeRatio: 0.4,
+                iconOffsetRatio: -1
+            ) {}
+                .ignoresSafeArea()
+                .opacity(0.5)
+
+            Spacer()
+
+            QuarterCircleButton(
+                position: .leftBottom,
+                size: 70,
+                backgroundColor: .pink,
+                iconName: "plus",
+                iconColor: .white,
+                iconSizeRatio: 0.45,
+                iconOffsetRatio: -1
+            ) {
+                showAddEvent = true
+            }
+                .ignoresSafeArea()
+                .opacity(0.5)
+        }
+    }
+
+    // MARK: - Avatar
+    private var avatarArea: some View {
+        HStack(spacing: 24) {
+            Spacer()
+
+            AvatarView(
+                image: user.iconImage,
+                size: 100,
+                isEditable: false,
+                onTap: nil
+            )
+
+            Text("♡").font(.title)
+
+            AvatarView(
+                image: displayPartnerImage,
+                size: 100,
+                isEditable: partnerUser == nil && user.partnerIconImage == nil,
+                onTap: {
+                    guard partnerUser == nil,
+                          user.partnerIconImage == nil else { return }
+                    showPartnerImagePicker = true
+                }
+            )
+
+            Spacer()
+        }
+        .padding(.leading, 16)
     }
 }
 
-// プレビュー
 #Preview {
     MainView()
 }
